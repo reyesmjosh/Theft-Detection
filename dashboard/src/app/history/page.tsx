@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, Download, ExternalLink, Calendar, Loader2, Image as ImageIcon } from "lucide-react";
+import { Search, Download, ExternalLink, Calendar, Loader2, Image as ImageIcon, Trash2, Check } from "lucide-react";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface AlertHistory {
   id: string;
@@ -11,10 +12,14 @@ interface AlertHistory {
 }
 
 export default function HistoryPage() {
+  const { t } = useLanguage();
   const [history, setHistory] = useState<AlertHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedType, setSelectedType] = useState("All Event Types");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isAllSelected, setIsAllSelected] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -73,10 +78,10 @@ export default function HistoryPage() {
       event.message,
       event.image_path
     ]);
-    
-    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
+
+    const csvContent = "data:text/csv;charset=utf-8,\uFEFF"
       + [headers.join(","), ...rows.map(r => r.map(val => `"${val.replace(/"/g, '""')}"`).join(","))].join("\n");
-      
+
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -84,6 +89,55 @@ export default function HistoryPage() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredHistory.map(e => e.id)));
+    }
+    setIsAllSelected(!isAllSelected);
+  };
+
+  const handleSelectOne = (id: string) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+    setIsAllSelected(newSelected.size === filteredHistory.length);
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Delete ${selectedIds.size} selected alert(s)?`)) return;
+
+    setDeleting(true);
+    try {
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const deletePromises = Array.from(selectedIds).map(id =>
+        fetch(`${apiBaseUrl}/history/${id}`, { method: 'DELETE' })
+      );
+
+      await Promise.all(deletePromises);
+
+      // Refresh history
+      const response = await fetch(`${apiBaseUrl}/history`);
+      if (response.ok) {
+        const data = await response.json();
+        setHistory(data);
+      }
+
+      setSelectedIds(new Set());
+      setIsAllSelected(false);
+    } catch (err) {
+      console.error("Failed to delete alerts:", err);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -98,7 +152,17 @@ export default function HistoryPage() {
             <Calendar className="w-4 h-4" />
             Last 7 Days
           </button>
-          <button 
+          {selectedIds.size > 0 && (
+            <button
+              onClick={handleDeleteSelected}
+              disabled={deleting}
+              className="flex items-center gap-2 px-4 py-2 bg-danger/20 border border-danger/35 hover:bg-danger/30 text-danger rounded-lg transition-colors text-sm font-bold cursor-pointer disabled:opacity-50"
+            >
+              {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Delete Selected ({selectedIds.size})
+            </button>
+          )}
+          <button
             onClick={handleExportCSV}
             disabled={filteredHistory.length === 0}
             className="flex items-center gap-2 px-4 py-2 bg-brand/20 border border-brand/35 hover:bg-brand/30 text-brand rounded-lg transition-colors text-sm font-bold cursor-pointer disabled:opacity-50"
@@ -137,6 +201,14 @@ export default function HistoryPage() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-black/20 border-b border-glass-border text-sm text-foreground/70">
+                <th className="p-4 font-medium w-10">
+                  <input
+                    type="checkbox"
+                    checked={isAllSelected && filteredHistory.length > 0}
+                    onChange={handleSelectAll}
+                    className="w-4 h-4 rounded border-glass-border bg-black/40 text-brand focus:ring-brand cursor-pointer"
+                  />
+                </th>
                 <th className="p-4 font-medium">Event ID</th>
                 <th className="p-4 font-medium">Date & Time</th>
                 <th className="p-4 font-medium">Detection Type</th>
@@ -147,25 +219,33 @@ export default function HistoryPage() {
             <tbody className="text-sm">
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-foreground/60">
+                  <td colSpan={6} className="p-8 text-center text-foreground/60">
                     <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
                     Loading history...
                   </td>
                 </tr>
               ) : filteredHistory.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-foreground/60">
+                  <td colSpan={6} className="p-8 text-center text-foreground/60">
                     No alert history found matching search criteria.
                   </td>
                 </tr>
               ) : (
                 filteredHistory.map((event) => (
                   <tr key={event.id} className="border-b border-glass-border/50 hover:bg-white/[0.02] transition-colors">
+                    <td className="p-4">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(event.id)}
+                        onChange={() => handleSelectOne(event.id)}
+                        className="w-4 h-4 rounded border-glass-border bg-black/40 text-brand focus:ring-brand cursor-pointer"
+                      />
+                    </td>
                     <td className="p-4 font-mono text-brand text-xs">{event.id.slice(0, 8)}...</td>
                     <td className="p-4 text-foreground/80">{formatTime(event.timestamp)}</td>
                     <td className="p-4">
                       <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${
-                        event.message.includes('THEFT') || event.message.includes('CRIMINAL') ? 'bg-danger/20 text-danger border border-danger/20' : 
+                        event.message.includes('THEFT') || event.message.includes('CRIMINAL') ? 'bg-danger/20 text-danger border border-danger/20' :
                         event.message.includes('BLACKLIST') || event.message.includes('RESTRICTED') ? 'bg-orange-500/20 text-orange-400 border border-orange-500/20' :
                         'bg-blue-500/20 text-blue-400 border border-blue-500/20'
                       }`}>
@@ -174,10 +254,10 @@ export default function HistoryPage() {
                     </td>
                     <td className="p-4 font-mono text-xs text-foreground/60">{event.image_path}</td>
                     <td className="p-4 text-center">
-                      <a 
-                        href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/${event.image_path}`} 
-                        target="_blank" 
-                        rel="noreferrer" 
+                      <a
+                        href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/${event.image_path}`}
+                        target="_blank"
+                        rel="noreferrer"
                         className="p-1.5 rounded hover:bg-white/10 text-foreground/70 hover:text-brand transition-colors inline-block cursor-pointer"
                       >
                         <ImageIcon className="w-4 h-4" />

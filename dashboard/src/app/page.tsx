@@ -4,8 +4,10 @@ import { useState, useEffect } from "react";
 import CameraGrid from "@/components/CameraGrid";
 import StatsCharts from "@/components/StatsCharts";
 import { Activity, Camera, ShieldAlert, Users } from "lucide-react";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 export default function Home() {
+  const { t } = useLanguage();
   const [stats, setStats] = useState({
     activeCameras: "0/0",
     todaysAlerts: "0",
@@ -70,25 +72,25 @@ export default function Home() {
     <div className="max-w-7xl mx-auto pb-10">
       <header className="mb-8 flex justify-between items-end">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight mb-2">Dashboard Overview</h2>
-          <p className="text-foreground/60">Live surveillance feeds and system analytics.</p>
+          <h2 className="text-3xl font-bold tracking-tight mb-2">{t("dashboardOverview")}</h2>
+          <p className="text-foreground/60">{t("dashboardDesc")}</p>
         </div>
         <div className="flex items-center gap-3">
           <span className="relative flex h-3 w-3">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-danger opacity-75"></span>
             <span className="relative inline-flex rounded-full h-3 w-3 bg-danger"></span>
           </span>
-          <span className="text-sm font-medium text-danger">Monitoring Active</span>
+          <span className="text-sm font-medium text-danger">{t("monitoringActive")}</span>
         </div>
       </header>
 
       {/* Quick Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {[
-          { label: "Active Cameras", value: stats.activeCameras, icon: Camera, color: "text-blue-400" },
-          { label: "Today's Alerts", value: stats.todaysAlerts, icon: ShieldAlert, color: "text-danger" },
-          { label: "Faces Tracked", value: stats.facesTracked, icon: Users, color: "text-purple-400" },
-          { label: "System Load", value: stats.systemLoad, icon: Activity, color: "text-green-400" },
+          { label: t("activeCameras"), value: stats.activeCameras, icon: Camera, color: "text-blue-400" },
+          { label: t("todaysAlerts"), value: stats.todaysAlerts, icon: ShieldAlert, color: "text-danger" },
+          { label: t("facesTracked"), value: stats.facesTracked, icon: Users, color: "text-purple-400" },
+          { label: t("systemLoad"), value: stats.systemLoad, icon: Activity, color: "text-green-400" },
         ].map((stat, i) => {
           const Icon = stat.icon;
           return (
@@ -105,7 +107,7 @@ export default function Home() {
         })}
       </div>
 
-      <h3 className="text-xl font-semibold mb-4">Live Feeds</h3>
+      <h3 className="text-xl font-semibold mb-4">{t("liveFeeds")}</h3>
       <CameraGrid />
       
       <div className="mt-8">

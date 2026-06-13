@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Users, UserPlus, Trash2, ShieldAlert, ShieldCheck, Loader2, AlertCircle, CheckCircle } from "lucide-react";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface FaceData {
   id: string;
@@ -10,6 +11,7 @@ interface FaceData {
 }
 
 export default function FacesPage() {
+  const { t } = useLanguage();
   const [faces, setFaces] = useState<FaceData[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -51,7 +53,7 @@ export default function FacesPage() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !photo) {
-      setMessage({ text: "Lütfen tüm alanları doldurun ve bir fotoğraf seçin.", type: "error" });
+      setMessage({ text: t("fillAllFields"), type: "error" });
       return;
     }
 
@@ -71,7 +73,7 @@ export default function FacesPage() {
       const data = await res.json();
 
       if (res.ok && data.status === "success") {
-        setMessage({ text: `Yüz başarıyla kaydedildi: ${name}`, type: "success" });
+        setMessage({ text: `${t("faceRegistered")}: ${name}`, type: "success" });
         setName("");
         setPhoto(null);
         // Reset file input
@@ -80,18 +82,18 @@ export default function FacesPage() {
         
         await fetchFaces();
       } else {
-        setMessage({ text: data.message || "Yüz kaydı başarısız oldu.", type: "error" });
+        setMessage({ text: data.message || t("registrationFailed"), type: "error" });
       }
     } catch (err) {
       console.error(err);
-      setMessage({ text: "Bağlantı hatası. Backend'in çalıştığından emin olun.", type: "error" });
+      setMessage({ text: t("connectionError"), type: "error" });
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Bu yüz tanıma kaydını silmek istediğinize emin misiniz?")) return;
+    if (!confirm(t("deleteConfirm"))) return;
     
     setDeleteLoadingId(id);
     setMessage(null);
@@ -103,14 +105,14 @@ export default function FacesPage() {
       const data = await res.json();
 
       if (res.ok && data.status === "success") {
-        setMessage({ text: "Kayıt başarıyla silindi.", type: "success" });
+        setMessage({ text: t("recordDeleted"), type: "success" });
         await fetchFaces();
       } else {
-        setMessage({ text: data.message || "Kayıt silinemedi.", type: "error" });
+        setMessage({ text: data.message || t("recordDeleteFailed"), type: "error" });
       }
     } catch (err) {
       console.error(err);
-      setMessage({ text: "Bağlantı hatası.", type: "error" });
+      setMessage({ text: t("connectionError"), type: "error" });
     } finally {
       setDeleteLoadingId(null);
     }
@@ -127,9 +129,9 @@ export default function FacesPage() {
   return (
     <div className="max-w-6xl mx-auto pb-10">
       <header className="mb-8">
-        <h2 className="text-3xl font-bold tracking-tight mb-2">Face Recognition Management</h2>
+        <h2 className="text-3xl font-bold tracking-tight mb-2">{t("faceRecognitionTitle")}</h2>
         <p className="text-foreground/60">
-          Register individuals to White or Black lists for dynamic, real-time alert triggering.
+          {t("faceRecognitionDesc")}
         </p>
       </header>
 
@@ -154,12 +156,12 @@ export default function FacesPage() {
               <div className="p-2 rounded bg-brand/20 text-brand">
                 <UserPlus className="w-5 h-5" />
               </div>
-              <h3 className="text-xl font-semibold">Register New Face</h3>
+              <h3 className="text-xl font-semibold">{t("registerNewFace")}</h3>
             </div>
 
             <form onSubmit={handleRegister} className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground/80">Full Name</label>
+                <label className="text-sm font-medium text-foreground/80">{t("fullName")}</label>
                 <input 
                   type="text" 
                   value={name}
@@ -171,19 +173,19 @@ export default function FacesPage() {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground/80">List Type</label>
+                <label className="text-sm font-medium text-foreground/80">{t("listType")}</label>
                 <select 
                   value={type}
                   onChange={e => setType(e.target.value as "blacklist" | "whitelist")}
                   className="w-full bg-black/40 border border-glass-border rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand text-foreground"
                 >
-                  <option value="blacklist" className="bg-[#0f111a]">Blacklist (Alarms Active)</option>
-                  <option value="whitelist" className="bg-[#0f111a]">Whitelist (VIP/Trusted)</option>
+                  <option value="blacklist" className="bg-[#0f111a]">{t("blacklistOption")}</option>
+                  <option value="whitelist" className="bg-[#0f111a]">{t("whitelistOption")}</option>
                 </select>
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground/80">Face Reference Photo</label>
+                <label className="text-sm font-medium text-foreground/80">{t("faceReferencePhoto")}</label>
                 <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-glass-border border-dashed rounded-lg bg-black/20 hover:bg-black/30 transition-colors cursor-pointer relative group">
                   <div className="space-y-1 text-center">
                     <svg
@@ -202,10 +204,10 @@ export default function FacesPage() {
                     </svg>
                     <div className="flex text-sm text-foreground/60">
                       <span className="relative rounded-md font-semibold text-brand hover:text-brand/80 focus-within:outline-none">
-                        Upload a file
+                        {t("uploadFile")}
                       </span>
                     </div>
-                    <p className="text-xs text-foreground/45">PNG, JPG, JPEG up to 10MB</p>
+                    <p className="text-xs text-foreground/45">{t("fileTypes")}</p>
                   </div>
                   <input 
                     id="photo-input" 
@@ -227,7 +229,7 @@ export default function FacesPage() {
                 className="w-full mt-4 flex items-center justify-center gap-2 bg-brand hover:bg-brand/90 disabled:opacity-50 text-white py-2 rounded-lg font-medium transition-colors cursor-pointer"
               >
                 {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                {submitting ? "Registering..." : "Register Face"}
+                {submitting ? t("registering") : t("registerFaceBtn")}
               </button>
             </form>
           </div>
@@ -240,12 +242,12 @@ export default function FacesPage() {
               <div className="p-2 rounded bg-purple-500/20 text-purple-400">
                 <Users className="w-5 h-5" />
               </div>
-              <h3 className="text-xl font-semibold">Registered Faces ({faces.length})</h3>
+              <h3 className="text-xl font-semibold">{t("registeredFacesCount").replace("{count}", faces.length.toString())}</h3>
             </div>
 
             {faces.length === 0 ? (
               <div className="text-center p-12 text-foreground/40 border border-glass-border border-dashed rounded-lg bg-black/10">
-                No faces registered yet. Use the registration form to add faces.
+                {t("noFacesRegistered")}
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -290,7 +292,7 @@ export default function FacesPage() {
                       onClick={() => handleDelete(face.id)}
                       disabled={deleteLoadingId === face.id}
                       className="p-2 text-foreground/50 hover:text-danger hover:bg-danger/10 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                      title="Sil"
+                      title={t("delete")}
                     >
                       {deleteLoadingId === face.id ? (
                         <Loader2 className="w-5 h-5 animate-spin" />

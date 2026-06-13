@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Camera, Plus, Trash2, Edit, Loader2, AlertCircle, CheckCircle, X, RefreshCw, HelpCircle } from "lucide-react";
+import { Camera, Plus, Trash2, Edit, Loader2, AlertCircle, CheckCircle, X, RefreshCw, HelpCircle, Power, Crop } from "lucide-react";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface CameraData {
   id: string;
@@ -9,6 +10,7 @@ interface CameraData {
   source: string;
   status: "active" | "error";
   roi_points: number[][];
+  enabled: boolean;
 }
 
 interface CameraFeed {
@@ -18,6 +20,7 @@ interface CameraFeed {
 }
 
 export default function CamerasPage() {
+  const { t } = useLanguage();
   const [cameras, setCameras] = useState<CameraData[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -26,6 +29,11 @@ export default function CamerasPage() {
   // Add Camera Form
   const [name, setName] = useState("");
   const [source, setSource] = useState("");
+
+  // Edit Camera Form
+  const [editingCam, setEditingCam] = useState<CameraData | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editSource, setEditSource] = useState("");
 
   // ROI Canvas Drawer Modal States
   const [selectedCam, setSelectedCam] = useState<CameraData | null>(null);
@@ -222,6 +230,29 @@ export default function CamerasPage() {
     }
   };
 
+  const handleToggleCamera = async (id: string, enabled: boolean) => {
+    setMessage(null);
+
+    try {
+      const res = await fetch(`${apiBaseUrl}/cameras/${id}/toggle`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setMessage({ text: enabled ? t("cameraEnabled") : t("cameraDisabled"), type: "success" });
+        await fetchCameras();
+      } else {
+        setMessage({ text: data.detail || "Failed to toggle camera.", type: "error" });
+      }
+    } catch (err) {
+      console.error(err);
+      setMessage({ text: "Connection error.", type: "error" });
+    }
+  };
+
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -254,15 +285,51 @@ export default function CamerasPage() {
       const data = await res.json();
 
       if (res.ok && data.status === "success") {
-        setMessage({ text: "Region of Interest (ROI) coordinates saved successfully!", type: "success" });
+        setMessage({ text: t("roiSaved"), type: "success" });
         setSelectedCam(null);
         await fetchCameras();
       } else {
-        alert(data.detail || "Failed to save ROI.");
+        alert(data.detail || t("roiSaveFailed"));
       }
     } catch (err) {
       console.error(err);
-      alert("Network error while saving ROI.");
+      alert(t("roiNetworkError"));
+    }
+  };
+
+  const openEditModal = (cam: CameraData) => {
+    setEditingCam(cam);
+    setEditName(cam.name);
+    setEditSource(cam.source);
+  };
+
+  const handleUpdateCamera = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCam) return;
+
+    setSubmitting(true);
+    setMessage(null);
+
+    try {
+      const res = await fetch(`${apiBaseUrl}/cameras/${editingCam.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: editName, source: editSource }),
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setMessage({ text: data.message || t("cameraUpdated"), type: "success" });
+        setEditingCam(null);
+        await fetchCameras();
+      } else {
+        setMessage({ text: data.detail || "Failed to update camera.", type: "error" });
+      }
+    } catch (err) {
+      console.error(err);
+      setMessage({ text: "Connection error.", type: "error" });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -277,9 +344,9 @@ export default function CamerasPage() {
   return (
     <div className="max-w-6xl mx-auto pb-10">
       <header className="mb-8">
-        <h2 className="text-3xl font-bold tracking-tight mb-2">Camera Setup & Configuration</h2>
+        <h2 className="text-3xl font-bold tracking-tight mb-2">{t("cameraSetupTitle")}</h2>
         <p className="text-foreground/60">
-          Manage dynamic USB index/RTSP streams and define camera-specific Regions of Interest (ROI) interactively.
+          {t("cameraSetupDesc")}
         </p>
       </header>
 
@@ -304,17 +371,17 @@ export default function CamerasPage() {
               <div className="p-2 rounded bg-brand/20 text-brand">
                 <Camera className="w-5 h-5" />
               </div>
-              <h3 className="text-xl font-semibold">Connect New Camera</h3>
+              <h3 className="text-xl font-semibold">{t("connectNewCamera")}</h3>
             </div>
 
             <form onSubmit={handleAddCamera} className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground/80">Camera Name</label>
+                <label className="text-sm font-medium text-foreground/80">{t("cameraName")}</label>
                 <input 
                   type="text" 
                   value={name}
                   onChange={e => setName(e.target.value)}
-                  placeholder="e.g. Checkout Desk A"
+                  placeholder={t("cameraNamePlaceholder")}
                   className="w-full bg-black/40 border border-glass-border rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand text-foreground placeholder:text-foreground/30"
                   required
                 />
@@ -322,10 +389,10 @@ export default function CamerasPage() {
 
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
-                  <label className="text-sm font-medium text-foreground/80">Input Source</label>
+                  <label className="text-sm font-medium text-foreground/80">{t("inputSource")}</label>
                   <span className="text-[10px] text-foreground/45 flex items-center gap-1">
                     <HelpCircle className="w-3 h-3" />
-                    Webcam index or RTSP url
+                    {t("webcamOrRtsp")}
                   </span>
                 </div>
                 <input 
@@ -363,7 +430,7 @@ export default function CamerasPage() {
               <button 
                 onClick={fetchCameras}
                 className="p-2 hover:bg-glass border border-glass-border rounded-lg text-foreground/60 hover:text-foreground transition-colors cursor-pointer"
-                title="Yenile"
+                title="Refresh"
               >
                 <RefreshCw className="w-4 h-4" />
               </button>
@@ -412,11 +479,29 @@ export default function CamerasPage() {
 
                     <div className="flex items-center gap-2 self-end md:self-auto">
                       <button
-                        onClick={() => openRoiModal(cam)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-brand/20 border border-brand/35 text-brand hover:bg-brand/30 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                        onClick={() => handleToggleCamera(cam.id, !cam.enabled)}
+                        className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                          cam.enabled
+                            ? "text-green-400 hover:bg-green-500/10"
+                            : "text-foreground/30 hover:text-foreground hover:bg-glass"
+                        }`}
+                        title={cam.enabled ? "Disable camera" : "Enable camera"}
                       >
-                        <Edit className="w-3.5 h-3.5" />
-                        Configure ROI
+                        <Power className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => openEditModal(cam)}
+                        className="p-2 bg-glass border border-glass-border text-foreground/70 hover:text-foreground hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
+                        title="Edit camera"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => openRoiModal(cam)}
+                        className="p-2 bg-brand/20 border border-brand/35 text-brand hover:bg-brand/30 rounded-lg transition-colors cursor-pointer"
+                        title="Configure ROI"
+                      >
+                        <Crop className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleDeleteCamera(cam.id)}
@@ -457,7 +542,7 @@ export default function CamerasPage() {
               <div className="p-3 bg-brand/10 border border-brand/20 text-brand rounded-lg text-xs flex items-start gap-2 leading-relaxed">
                 <HelpCircle className="w-4 h-4 mt-0.5 shrink-0" />
                 <span>
-                  <strong>Nasıl ROI Çizilir:</strong> Canlı görüntü üzerine fareyle tıklayarak polygon noktalarını yerleştirin. Noktaları sırasıyla birleştiren çizgiler oluşacaktır. En az 3 nokta yerleştirerek loitering (bekleme) ve yasaklı alan bölgesi tanımlayabilirsiniz. Tamamlandığında <strong>Save ROI coordinates</strong> butonuna tıklayın.
+                  <strong>How to Draw ROI:</strong> Click on the live image with your mouse to place polygon points. Lines will form connecting the points in sequence. Place at least 3 points to define loitering (waiting) and restricted area zones. When complete, click the <strong>Save ROI coordinates</strong> button.
                 </span>
               </div>
 
@@ -502,6 +587,68 @@ export default function CamerasPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Camera Modal */}
+      {editingCam && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md transition-all duration-300">
+          <div className="glass-panel w-full max-w-md overflow-hidden border border-glass-border shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+            <div className="glass-header px-6 py-4 flex justify-between items-center">
+              <div>
+                <h3 className="text-lg font-bold text-foreground">Edit Camera</h3>
+                <p className="text-xs text-foreground/60">{editingCam.name}</p>
+              </div>
+              <button
+                onClick={() => setEditingCam(null)}
+                className="p-2 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5 text-foreground/70" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateCamera} className="p-6 space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground/80">{t("cameraName")}</label>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={e => setEditName(e.target.value)}
+                  className="w-full bg-black/40 border border-glass-border rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand text-foreground"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground/80">{t("inputSource")}</label>
+                <input
+                  type="text"
+                  value={editSource}
+                  onChange={e => setEditSource(e.target.value)}
+                  className="w-full bg-black/40 border border-glass-border rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand text-foreground"
+                  required
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setEditingCam(null)}
+                  className="px-4 py-2 border border-glass-border hover:bg-glass rounded-lg text-sm font-semibold transition-colors cursor-pointer text-foreground/80 hover:text-foreground"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="px-6 py-2 bg-brand hover:bg-brand/90 text-white rounded-lg text-sm font-bold transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-2"
+                >
+                  {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  Save Changes
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

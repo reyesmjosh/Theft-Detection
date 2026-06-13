@@ -47,7 +47,7 @@ app.mount("/alerts", StaticFiles(directory="alerts"), name="alerts")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:5174"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -315,6 +315,22 @@ async def get_history():
     except Exception as e:
         return {"error": str(e)}
 
+@app.delete("/history/{alert_id}")
+async def delete_history(alert_id: str):
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        c = conn.cursor()
+        c.execute("DELETE FROM alerts WHERE id = ?", (alert_id,))
+        conn.commit()
+        deleted = c.rowcount
+        conn.close()
+        if deleted > 0:
+            return {"status": "success", "message": "Alert deleted successfully"}
+        else:
+            return {"status": "error", "message": "Alert not found"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 # --- Video Logic ---
 
 # Global variables
@@ -400,15 +416,14 @@ class CameraManager:
                 with open(file_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     for cam in data:
-                        self.add_camera_internal(cam["id"], cam["source"], cam["name"], cam.get("roi_points", []))
+                        self.add_camera_internal(cam["id"], cam["source"], cam["name"], cam.get("roi_points", []), cam.get("enabled", True))
                 print(f"Loaded {len(self.cameras)} cameras from cameras.json.")
                 return
             except Exception as e:
                 print(f"Error loading cameras.json: {e}")
 
-        # Fallback to default webcam if no file exists
-        self.add_camera_internal("0", "0", "Kamera 1", [])
-        self.save_cameras()
+        # No fallback to default webcam - cameras must be explicitly configured
+        print("No cameras.json found. Please add cameras via the dashboard UI.")
 
     def save_cameras(self):
         file_path = "cameras.json"
@@ -420,14 +435,15 @@ class CameraManager:
                         "id": cam_id,
                         "name": cam_data["name"],
                         "source": cam_data["source"],
-                        "roi_points": cam_data.get("roi_points", [])
+                        "roi_points": cam_data.get("roi_points", []),
+                        "enabled": cam_data.get("enabled", True)
                     })
             with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
         except Exception as e:
             print(f"Error saving cameras.json: {e}")
 
-    def add_camera_internal(self, cam_id, source, name, roi_points):
+    def add_camera_internal(self, cam_id, source, name, roi_points, enabled=True):
         threaded_cap = ThreadedCamera(source)
         self.cameras[cam_id] = {
             "cap": threaded_cap,
@@ -437,7 +453,8 @@ class CameraManager:
             "roi_points": roi_points,
             "heatmap_accumulator": None,
             "roi_entry_times": {},
-            "last_alert_time": 0
+            "last_alert_time": 0,
+            "enabled": enabled
         }
 
     def add_camera(self, source, name):
@@ -453,13 +470,14 @@ class CameraManager:
                     "roi_points": [],
                     "heatmap_accumulator": None,
                     "roi_entry_times": {},
-                    "last_alert_time": 0
+                    "last_alert_time": 0,
+                    "enabled": True
                 }
             self.save_cameras()
-            print(f"Kamera eklendi: {name} ({source}) ID: {cam_id}")
+            print(f"Camera added: {name} ({source}) ID: {cam_id}")
             return {"id": cam_id, "status": "connected"}
         else:
-            print(f"Kamera açılamadı: {source}")
+            print(f"Camera could not be opened: {source}")
             return {"id": None, "status": "failed"}
 
     def remove_camera(self, cam_id):
@@ -474,6 +492,27 @@ class CameraManager:
             self.save_cameras()
         return status
 
+    def update_camera(self, cam_id, name, source):
+        with self.lock:
+            if cam_id in self.cameras:
+                # Only update name and source if they changed
+                if name:
+                    self.cameras[cam_id]["name"] = name
+                if source and source != self.cameras[cam_id]["source"]:
+                    # Release old camera
+                    self.cameras[cam_id]["cap"].release()
+                    # Try to open new camera
+                    new_cap = ThreadedCamera(source)
+                    if new_cap.isOpened():
+                        self.cameras[cam_id]["cap"] = new_cap
+                        self.cameras[cam_id]["source"] = source
+                        self.cameras[cam_id]["status"] = "active"
+                    else:
+                        self.cameras[cam_id]["status"] = "error"
+                        return False
+                return True
+            return False
+
     def get_active_cameras(self):
         with self.lock:
             return [{
@@ -481,8 +520,33 @@ class CameraManager:
                 "name": v["name"], 
                 "source": v["source"], 
                 "status": "active" if v["cap"].isOpened() else "error",
-                "roi_points": v.get("roi_points", [])
+                "roi_points": v.get("roi_points", []),
+                "enabled": v.get("enabled", True)
             } for k, v in self.cameras.items()]
+
+    def toggle_camera(self, cam_id, enabled):
+        with self.lock:
+            if cam_id in self.cameras:
+                self.cameras[cam_id]["enabled"] = enabled
+                # Release camera when disabled to stop using hardware
+                if not enabled:
+                    self.cameras[cam_id]["cap"].release()
+        # Save outside the lock to avoid deadlock (save_cameras also acquires lock)
+        if cam_id in self.cameras:
+            self.save_cameras()
+            # Re-initialize camera when enabled
+            if enabled:
+                source = self.cameras[cam_id]["source"]
+                new_cap = ThreadedCamera(source)
+                if new_cap.isOpened():
+                    with self.lock:
+                        self.cameras[cam_id]["cap"] = new_cap
+                        self.cameras[cam_id]["status"] = "active"
+                else:
+                    with self.lock:
+                        self.cameras[cam_id]["status"] = "error"
+            return True
+        return False
 
 camera_manager = CameraManager()
 
@@ -506,6 +570,15 @@ async def add_new_camera(cam: CameraInput):
         return {"message": "Camera added", "camera": cam_details}
     else:
         raise HTTPException(status_code=400, detail="Failed to open camera")
+
+@app.put("/cameras/{camera_id}")
+async def update_camera(camera_id: str, cam: CameraInput):
+    result = camera_manager.update_camera(camera_id, cam.name, cam.source)
+    if result:
+        camera_manager.save_cameras()
+        return {"status": "success", "message": "Camera updated successfully"}
+    else:
+        raise HTTPException(status_code=404, detail="Camera not found")
 
 @app.get("/stats")
 def get_stats():
@@ -556,14 +629,21 @@ async def delete_camera(camera_id: str):
 
 @app.post("/cameras/{camera_id}/roi")
 async def save_camera_roi(camera_id: str, data: dict):
+    print(f"Received ROI save request for camera {camera_id}: {data}")
     if "points" in data:
         points = data["points"]
         with camera_manager.lock:
             if camera_id in camera_manager.cameras:
                 camera_manager.cameras[camera_id]["roi_points"] = points
-                camera_manager.save_cameras()
-                return {"status": "success", "roi_points": points}
-        raise HTTPException(status_code=404, detail="Camera not found")
+                print(f"Updated ROI points for camera {camera_id}: {points}")
+            else:
+                print(f"Camera {camera_id} not found")
+                raise HTTPException(status_code=404, detail="Camera not found")
+        # Save to file outside the lock to avoid blocking video loop
+        camera_manager.save_cameras()
+        print(f"Saved cameras to file")
+        return {"status": "success", "roi_points": points}
+    print(f"Invalid data: 'points' not found in {data}")
     raise HTTPException(status_code=400, detail="Invalid data")
 
 @app.get("/cameras/{camera_id}/roi")
@@ -572,6 +652,14 @@ async def get_camera_roi(camera_id: str):
         if camera_id in camera_manager.cameras:
             return {"points": camera_manager.cameras[camera_id].get("roi_points", [])}
     raise HTTPException(status_code=404, detail="Camera not found")
+
+@app.patch("/cameras/{camera_id}/toggle")
+async def toggle_camera(camera_id: str, data: dict):
+    if "enabled" in data:
+        enabled = data["enabled"]
+        if camera_manager.toggle_camera(camera_id, enabled):
+            return {"status": "success", "enabled": enabled}
+    raise HTTPException(status_code=400, detail="Invalid data")
 
 
 
@@ -661,7 +749,7 @@ def check_bending(keypoints):
 def video_loop():
     global latest_frame, current_settings, alert_payload, known_face_encodings, known_face_names, known_face_types, person_states
     
-    print("Video Loop Başlatılıyor...") 
+    print("Video Loop Starting...") 
     model_obj = None # Fallback or specialized
     model_is_specialized = False
     
@@ -674,16 +762,16 @@ def video_loop():
             # Try to load specialized model first
             model_obj = YOLO('shoplifting.pt')
             model_is_specialized = True
-            print("Özel Hırsızlık Modeli Yüklendi! (shoplifting.pt)")
+            print("Special Theft Model Loaded! (shoplifting.pt)")
         except:
-            print("Özel model bulunamadı, standart nesne takibine (yolov8n.pt) geçiliyor...")
+            print("Special model not found, switching to standard object tracking (yolov8n.pt)...")
             try:
                 model_obj = YOLO('yolov8n.pt')
             except Exception as e:
-                print(f"Standart Model de yüklenemedi: {e}")
+                print(f"Standard Model also failed to load: {e}")
                 model_obj = None
 
-        print("Modeller hazır.")
+        print("Models ready.")
     except Exception as e:
         print(f"CRITICAL MODEL ERROR: {e}")
         with open("error_log.txt", "a") as f:
@@ -692,7 +780,7 @@ def video_loop():
 
     frame_count = 0
     no_signal_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
-    cv2.putText(no_signal_frame, "SINYAL YOK", (400, 360), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)
+    cv2.putText(no_signal_frame, "NO SIGNAL", (400, 360), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)
 
     while True:
         try:
@@ -705,6 +793,10 @@ def video_loop():
             run_obj_det = (frame_count % 5 == 0) and (model_obj is not None)
             
             for cam_id, cam_data in current_cams:
+                # Skip disabled cameras
+                if not cam_data.get("enabled", True):
+                    continue
+                
                 cap = cam_data["cap"]
                 name = cam_data["name"]
                 current_time = time.time()

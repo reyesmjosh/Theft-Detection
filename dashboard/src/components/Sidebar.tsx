@@ -2,17 +2,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, History, Settings, Users, Video } from "lucide-react";
+import { LayoutDashboard, History, Settings, Users, Video, Globe } from "lucide-react";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { language, setLanguage, t } = useLanguage();
 
   const links = [
-    { href: "/", label: "Overview", icon: LayoutDashboard },
-    { href: "/cameras", label: "Cameras", icon: Video },
-    { href: "/faces", label: "Faces", icon: Users },
-    { href: "/history", label: "Alert History", icon: History },
-    { href: "/settings", label: "Settings", icon: Settings },
+    { href: "/", labelKey: "overview" as const, icon: LayoutDashboard },
+    { href: "/cameras", labelKey: "cameras" as const, icon: Video },
+    { href: "/faces", labelKey: "faces" as const, icon: Users },
+    { href: "/history", labelKey: "alertHistory" as const, icon: History },
+    { href: "/settings", labelKey: "settings" as const, icon: Settings },
   ];
 
   return (
@@ -39,20 +41,28 @@ export default function Sidebar() {
               }`}
             >
               <Icon className="w-5 h-5" />
-              {link.label}
+              {t(link.labelKey)}
             </Link>
           );
         })}
       </nav>
 
-      <div className="mt-auto pt-8 pb-4">
+      <div className="mt-auto pt-8 pb-4 space-y-3">
         <div className="px-4 py-3 rounded-lg bg-black/20 border border-glass-border">
-          <div className="text-xs text-foreground/50 uppercase tracking-wider mb-1">System Status</div>
+          <div className="text-xs text-foreground/50 uppercase tracking-wider mb-1">{t("systemStatus")}</div>
           <div className="flex items-center gap-2 text-sm text-green-400">
             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
-            Online & Active
+            {t("onlineActive")}
           </div>
         </div>
+        
+        <button
+          onClick={() => setLanguage(language === "en" ? "ko" : "en")}
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-brand/10 border border-brand/20 text-brand hover:bg-brand/20 transition-colors cursor-pointer"
+        >
+          <Globe className="w-4 h-4" />
+          <span className="text-sm font-medium">{language === "en" ? "한국어" : "English"}</span>
+        </button>
       </div>
     </aside>
   );
